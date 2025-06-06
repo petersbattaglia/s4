@@ -19,7 +19,7 @@ start :
 run :
 	@sudo docker run -p 5088:5000 \
 		-v /etc/s4:/data \
-		-e LOG_LEVEL='INFO' \
+		-e LOG_LEVEL='DEBUG' \
 		--detach --name ${LOCAL_NAME} ${IMAGE_NAME}
 
 test :
