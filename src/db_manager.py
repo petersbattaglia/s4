@@ -130,6 +130,29 @@ def count_collection(table_name, include_deleted=False):
     logger.debug(f"[count_collection] Counted {count} records in {table_name}")
     return count
 
+def fetch_item_from_collection(table_name, record_id, include_deleted=False):
+    """
+    Fetch a single item from a collection table by its ID.
+    :param table_name: Name of the table to fetch from.
+    :param record_id: ID of the record to fetch.
+    :param include_deleted: Include soft-deleted items in the result.
+    
+    :return: The record as a dictionary or None if not found.
+    """
+    con, cur = get_db_connection()
+    query = f"SELECT * FROM {table_name} WHERE id = ?"
+    
+    if not include_deleted:
+        query += " AND deleted = 0"
+    
+    cur.execute(query, (record_id,))
+    row = cur.fetchone()
+    
+    if row:
+        return {"id": row[0], "deleted": row[1], "payload": json.loads(row[2])}
+    
+    return None
+
 def query_collection(table_name, filters=[], sort_field=None, sort_direction="ASC", filter_combination="AND", limit=10, include_deleted=False):
     """
     Query a collection table with a specific query.

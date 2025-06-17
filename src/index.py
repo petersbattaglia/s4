@@ -1,7 +1,4 @@
-import csv
-import json
 import os
-import requests
 import sqlite3
 
 from pathlib import Path
@@ -9,8 +6,8 @@ from pathlib import Path
 from flask import Flask, redirect, request, url_for, render_template, send_from_directory
 
 from logger import get_logger
-from db_manager import (get_db_connection,
-                        execute_query,
+from db_manager import (execute_query,
+                        fetch_item_from_collection,
                         create_collection_table,
                         insert_into_collection, 
                         query_collection,
@@ -23,10 +20,6 @@ logger = get_logger()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY") or os.urandom(24)
-
-
-## Initialize SQLLite SB
-con, cur  = get_db_connection()
 
 
 @app.route('/healthcheck', methods=['GET'])
@@ -183,19 +176,18 @@ def collection_query(collection_name):
 
     return {"response": {"count": len(result), "items": result} }
 
-@app.route('/collections/<collection_name>/<id>', methods=['DELETE', 'PUT'])
-def mutate_item_in_collection(collection_name, id):
+@app.route('/collections/<collection_name>/<id>', methods=['DELETE', 'PUT', 'GET'])
+def access_item_in_collection(collection_name, id):
     """
-    Mutate an item in a collection.
+    Access an item in a collection.
     :param collection_name: Name of the collection to mutate.
     :param id: ID of the item to mutate.
     """
-    logger.info(f"Mutating item in collection {collection_name} with ID {id}")
-
     if not does_collection_exist(collection_name):
         create_collection_table(collection_name)
 
     if request.method == 'DELETE':
+        logger.info(f"Deleting record with ID {id} from collection {collection_name}")
         # Soft delete the record
         try:
             delete_from_collection(collection_name, id)
@@ -205,6 +197,7 @@ def mutate_item_in_collection(collection_name, id):
         return {"response": f"Record with ID {id} deleted from {collection_name} successfully"}, 200
 
     elif request.method == 'PUT':
+        logger.info(f"Updating record with ID {id} in collection {collection_name}")
         # Update the record
         try:
             request.json
@@ -218,6 +211,18 @@ def mutate_item_in_collection(collection_name, id):
         except sqlite3.Error as e:
             logger.error(f"Error updating record in {collection_name}: {e}")
             return {"error": "Failed to update record"}, 500
+
+    elif request.method == 'GET':
+        logger.info(f"Fetching record with ID {id} from collection {collection_name}")
+        # Fetch the record
+        try:
+            item = fetch_item_from_collection(collection_name, id)
+            if item is None:
+                return {"error": f"Record with ID {id} not found in {collection_name}"}, 404
+            return {"response": item}, 200
+        except sqlite3.Error as e:
+            logger.error(f"Error fetching record from {collection_name}: {e}")
+            return {"error": "Failed to fetch record"}, 500
 
 
 @app.route('/collections/<collection_name>/backup', methods=['GET'])
