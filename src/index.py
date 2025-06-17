@@ -9,7 +9,15 @@ from pathlib import Path
 from flask import Flask, redirect, request, url_for, render_template, send_from_directory
 
 from logger import get_logger
-from db_manager import get_db_connection, execute_query, create_collection_table, insert_into_collection, get_collection, query_collection, does_collection_exist
+from db_manager import (get_db_connection,
+                        execute_query,
+                        create_collection_table,
+                        insert_into_collection, 
+                        query_collection,
+                        does_collection_exist,
+                        delete_from_collection,
+                        modify_item_in_collection,
+                        count_collection)
 
 logger = get_logger()
 
@@ -39,7 +47,6 @@ def healthcheck_deep():
 def index():
     return {"response": "ok"}
 
-
 @app.route('/collections/<collection_name>', methods=['GET', 'POST'])
 def collection(collection_name):
     """
@@ -61,15 +68,25 @@ def collection(collection_name):
             return {"error": "Failed to insert record"}, 500
         return {"response": f"Record inserted into {collection_name} successfully"}, 201
     elif request.method == 'GET':
-        # Retrieve records from the specified collection
-        try:
-            result = get_collection(collection_name, False)
-            logger.info(f"Retrieved {len(result)} records from {collection_name} collection")
-            return {"response": result}
-        except sqlite3.Error as e:
-            logger.error(f"Error retrieving from {collection_name} collection: {e}")
-            return {"error": "Failed to retrieve records"}, 500
+        return {"error": "Not implemented. Use `/collections/{collection_name}/query` to fetch record."}, 501
 
+
+@app.route('/collections/<collection_name>/count', methods=['GET'])
+def collection_count(collection_name):
+    """
+    Count the number of records in a collection.
+    :param collection_name: Name of the collection to count records in.
+    """
+    logger.info(f"Counting records in collection: {collection_name}")
+    if not does_collection_exist(collection_name):
+        create_collection_table(collection_name)
+
+    try:
+        count = count_collection(collection_name)
+        return {"response": {"count": count}}
+    except sqlite3.Error as e:
+        logger.error(f"Error counting records in {collection_name}: {e}")
+        return {"error": "Failed to count records"}, 500
 
 @app.route('/collections/<collection_name>/query', methods=['GET'])
 def collection_query(collection_name):
@@ -84,13 +101,12 @@ def collection_query(collection_name):
         else:
             return _field_name
 
-
     logger.info(f"Collection query endpoint for: {collection_name}")
     if not does_collection_exist(collection_name):
         create_collection_table(collection_name)
 
     limit = request.args.get("limit", 10)
-    sort_field = normalize_field(request.args.get("sort_field", None))
+    sort_field = normalize_field(request.args.get("sort_field", "id"))
     sort_direction = request.args.get("sort_direction", "ASC")
     filter_combination = request.args.get("filter_combination", "AND")
 
@@ -165,7 +181,43 @@ def collection_query(collection_name):
                                 filter_combination=filter_combination,
                                 limit=limit)
 
-    return {"response": result}
+    return {"response": {"count": len(result), "items": result} }
+
+@app.route('/collections/<collection_name>/<id>', methods=['DELETE', 'PUT'])
+def mutate_item_in_collection(collection_name, id):
+    """
+    Mutate an item in a collection.
+    :param collection_name: Name of the collection to mutate.
+    :param id: ID of the item to mutate.
+    """
+    logger.info(f"Mutating item in collection {collection_name} with ID {id}")
+
+    if not does_collection_exist(collection_name):
+        create_collection_table(collection_name)
+
+    if request.method == 'DELETE':
+        # Soft delete the record
+        try:
+            delete_from_collection(collection_name, id)
+        except sqlite3.Error as e:
+            logger.error(f"Error deleting record from {collection_name}: {e}")
+            return {"error": "Failed to delete record"}, 500
+        return {"response": f"Record with ID {id} deleted from {collection_name} successfully"}, 200
+
+    elif request.method == 'PUT':
+        # Update the record
+        try:
+            request.json
+        except Exception as e:
+            logger.error(f"Invalid JSON payload: {request.data}")
+            return {"error": "Invalid JSON payload"}, 400
+        payload = request.json
+        try:
+            modify_item_in_collection(collection_name, id, payload)
+            return {"response": f"Record with ID {id} updated in {collection_name} successfully"}, 200
+        except sqlite3.Error as e:
+            logger.error(f"Error updating record in {collection_name}: {e}")
+            return {"error": "Failed to update record"}, 500
 
 
 @app.route('/collections/<collection_name>/backup', methods=['GET'])
